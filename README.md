@@ -471,3 +471,29 @@ For issues or questions:
 - Local database from scraped files
 - Basic lookup functionality
 - Range-based lookups
+
+
+## License
+
+  This project is licensed under the MIT License - see the
+  [LICENSE](LICENSE) file for details.
+
+  ## Acknowledgments
+
+  - FAA Remote ID compliance data is provided by the Federal
+  Aviation Administration
+  - Designed for integration with WarDragon and DragonSync
+  workflows
+
+
+  ## Author
+
+  John Roberts - [GitHub](https://github.com/jlrjr)
+
+  ## Disclaimer
+
+  This project works with publicly available FAA Remote ID
+  compliance data. The database is built from official FAA APIs
+  and is provided as-is for informational and integration
+  purposes. Always verify critical information with official FAA
+  sources.
