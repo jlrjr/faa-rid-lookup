@@ -88,6 +88,42 @@ def query_faa_api(serial_number: str) -> Optional[Dict[str, Any]]:
     return None
 
 
+def _is_numeric_serial(serial: str) -> bool:
+    """
+    Check if a serial number is purely numeric.
+
+    Args:
+        serial: The serial number to check
+
+    Returns:
+        True if the serial is all digits, False otherwise
+    """
+    return serial.isdigit()
+
+
+def _serials_compatible_for_comparison(serial: str, range_start: str, range_end: str) -> bool:
+    """
+    Check if a serial number and a range are compatible for string comparison.
+
+    This prevents false matches when comparing numeric serials against
+    alphanumeric ranges (or vice versa).
+
+    Args:
+        serial: The serial number to check
+        range_start: The start of the serial range
+        range_end: The end of the serial range
+
+    Returns:
+        True if the serial and range are compatible for comparison
+    """
+    serial_is_numeric = _is_numeric_serial(serial)
+    start_is_numeric = _is_numeric_serial(range_start)
+    end_is_numeric = _is_numeric_serial(range_end)
+
+    # All three must have the same numeric/alphanumeric property
+    return serial_is_numeric == start_is_numeric == end_is_numeric
+
+
 def add_serial_to_database(serial_number: str, drone_info: Dict[str, Any],
                            db_path: str) -> bool:
     """
@@ -108,8 +144,8 @@ def add_serial_to_database(serial_number: str, drone_info: Dict[str, Any],
         cursor.execute("""
             INSERT OR REPLACE INTO exact_serials
             (serial_number, rid_tracking, description, status, make, model,
-             mfr_serial, scraped_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+             mfr_serial, synced_at, faa_updated_at, deleted)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
         """, (
             serial_number,
             drone_info.get("rid_tracking"),
@@ -118,14 +154,17 @@ def add_serial_to_database(serial_number: str, drone_info: Dict[str, Any],
             drone_info.get("make"),
             drone_info.get("model"),
             drone_info.get("mfr_serial"),
-            datetime.now().isoformat()
+            datetime.now().isoformat(),
+            drone_info.get("updated_at")
         ))
 
         conn.commit()
         conn.close()
         return True
 
-    except sqlite3.Error:
+    except sqlite3.Error as e:
+        # Print error for debugging
+        print(f"Database insertion error: {e}")
         return False
 
 
@@ -178,7 +217,8 @@ def lookup_serial(serial_number: str, db_path: Optional[str] = None,
         "make": None,
         "model": None,
         "mfr_serial": None,
-        "source": "none"
+        "source": "none",
+        "added_to_db": False
     }
 
     # Strip whitespace from input
@@ -227,8 +267,13 @@ def lookup_serial(serial_number: str, db_path: Optional[str] = None,
             serial_start = row[6]
             serial_end = row[7]
 
+            # Only compare if the formats are compatible (both numeric or both alphanumeric)
+            # This prevents false matches like numeric "18696001810" matching alphanumeric range "1795F250ZS..."
+            if not _serials_compatible_for_comparison(serial_number, serial_start, serial_end):
+                continue
+
             # Check if the serial falls within this range
-            # Using string comparison which works for alphanumeric serials
+            # Using string comparison which works for alphanumeric serials of the same format
             if serial_start <= serial_number <= serial_end:
                 result.update({
                     "found": True,
@@ -262,7 +307,7 @@ def lookup_serial(serial_number: str, db_path: Optional[str] = None,
 
                 # Optionally add to database
                 if add_to_db:
-                    add_serial_to_database(serial_number, api_result, db_path)
+                    result["added_to_db"] = add_serial_to_database(serial_number, api_result, db_path)
 
     except sqlite3.Error as e:
         print(f"Database error: {e}")
@@ -355,8 +400,11 @@ def main():
             print(f"Model: {result['model']}")
             print(f"Mfr Serial: {result['mfr_serial']}")
 
-            if result['source'] == 'api' and args.add_to_db:
-                print("\n✓ Added to local database")
+            if args.add_to_db:
+                if result.get('added_to_db'):
+                    print("\n✓ Added to local database")
+                else:
+                    print("\n✗ Failed to add to local database")
         else:
             print("\nNo matching drone found in database.")
             if not args.api:
